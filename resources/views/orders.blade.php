@@ -132,6 +132,9 @@ async function loadOrders(status='', start_date='', end_date='', page=1) {
     list.forEach(order=>{
         console.log(order)
         let itemsList = order.items.map(i => `${i.product_name} x ${i.qty}`).join(', ');
+        let confirmDisabled = order.status !== 'Pending' ? 'disabled' : '';
+        let cancelDisabled = order.status === 'Cancelled' ? 'disabled' : '';
+
         html += `
         <tr>
             <td>${order.order_no}</td>
@@ -141,8 +144,8 @@ async function loadOrders(status='', start_date='', end_date='', page=1) {
             <td>${order.total}</td>
             <td>${itemsList}</td>
             <td>
-                <button onclick="confirmOrder(${order.id})" class="btn btn-success btn-sm">Confirm</button>
-                <button onclick="cancelOrder(${order.id})" class="btn btn-danger btn-sm">Cancel</button>
+                <button id="confirm-btn-${order.id}" onclick="confirmOrder(${order.id})" class="btn btn-success btn-sm" ${confirmDisabled}>Confirm</button>
+                <button id="cancel-btn-${order.id}" onclick="cancelOrder(${order.id})" class="btn btn-danger btn-sm" ${cancelDisabled}>Cancel</button>
             </td>
         </tr>
         `;
@@ -160,33 +163,60 @@ async function loadOrders(status='', start_date='', end_date='', page=1) {
 
 // CONFIRM ORDER
 async function confirmOrder(id) {
-    let res = await fetch('/api/orders/' + id + '/confirm', {
-        method: 'POST',
-        headers: {'Authorization': 'Bearer ' + token}
-    });
-    let data = await res.json();
-    if (!res.ok || !data.success) {
-        alert(data.message || "Error confirming order");
-        return;
+    const btn = document.getElementById(`confirm-btn-${id}`);
+    btn.disabled = true;          // disable the button
+    const originalText = btn.innerText;
+    btn.innerText = 'Confirming...'; // show loader text
+
+    try {
+        let res = await fetch('/api/orders/' + id + '/confirm', {
+            method: 'POST',
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        let data = await res.json();
+
+        if (!res.ok || !data.success) {
+            alert(data.message || "Error confirming order");
+        } else {
+            alert(data.message);
+        }
+    } catch(err) {
+        alert("Network error: " + err.message);
+    } finally {
+        btn.disabled = false;       // re-enable
+        btn.innerText = originalText;
+        loadOrders();               // refresh table to show new status
     }
-    alert(data.message);
-    loadOrders();
 }
 
 // CANCEL ORDER
 async function cancelOrder(id) {
     if (!confirm("Are you sure you want to cancel this order?")) return;
-    let res = await fetch('/api/orders/' + id + '/cancel', {
-        method: 'POST',
-        headers: {'Authorization': 'Bearer ' + token}
-    });
-    let data = await res.json();
-    if (!res.ok || !data.success) {
-        alert(data.message || "Error cancelling order");
-        return;
+
+    const btn = document.getElementById(`cancel-btn-${id}`);
+    btn.disabled = true;
+    const originalText = btn.innerText;
+    btn.innerText = 'Cancelling...';
+
+    try {
+        let res = await fetch('/api/orders/' + id + '/cancel', {
+            method: 'POST',
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        let data = await res.json();
+
+        if (!res.ok || !data.success) {
+            alert(data.message || "Error cancelling order");
+        } else {
+            alert(data.message);
+        }
+    } catch(err) {
+        alert("Network error: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+        loadOrders();
     }
-    alert(data.message);
-    loadOrders();
 }
 
 // INITIAL LOAD

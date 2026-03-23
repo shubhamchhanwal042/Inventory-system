@@ -58,66 +58,77 @@ class OrderController extends Controller
 }
 
 
-    public function cancel($id)
-    {
-        try {
-            DB::transaction(function () use ($id) {
-    
-                $order = Order::with('items')->findOrFail($id);
-    
+ // Confirm Order
+public function confirm($id)
+{
+    try {
+        DB::transaction(function() use ($id) {
+            $order = Order::with('items')->findOrFail($id);
+
+            if ($order->order_status !== 'pending') {
+                throw new \Exception('Only pending orders can be confirmed');
+            }
+
+            $order->update(['order_status' => 'confirmed']);
+
+            // Fire event to deduct stock
+            event(new OrderConfirmed($order));
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order confirmed and stock deducted'
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 400);
+    }
+}
+
+// Cancel Order
+public function cancel($id)
+{
+    try {
+        // Define variable outside
+        $order = null;
+
+        DB::transaction(function () use ($id, &$order) {
+
+            $order = Order::with('items')->findOrFail($id);
+
+            // Restore stock only if order was confirmed
+            if($order->order_status === 'confirmed') {
                 foreach($order->items as $item){
-                    $stock = Stock::where('product_id',$item->product_id)
-                        ->where('warehouse_id',$order->warehouse_id)
-                        ->lockForUpdate()
-                        ->first();
-    
-                    $stock->quantity += $item->qty;
-                    $stock->save();
+                    $stock = Stock::where('product_id', $item->product_id)
+                                  ->where('warehouse_id', $order->warehouse_id)
+                                  ->lockForUpdate()
+                                  ->first();
+
+                    if($stock) {
+                        $stock->quantity += $item->qty;
+                        $stock->save();
+                    }
                 }
-    
-                $order->update(['order_status'=>'cancelled']);
-            });
-    
-            return response()->json([
-                'success' => true,
-                'message' => 'Order cancelled and stock restored'
-            ], 200);
-    
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
-        }
+            }
+
+            $order->update(['order_status' => 'cancelled']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order cancelled' . ($order->order_status === 'confirmed' ? ' and stock restored' : '')
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 400);
     }
-    public function confirm($id)
-    {
-        try {
-            DB::transaction(function() use ($id) {
-                $order = Order::with('items')->findOrFail($id);
-    
-                if ($order->order_status != 'pending') {
-                    throw new \Exception('Only pending orders can be confirmed');
-                }
-    
-                $order->update(['order_status' => 'confirmed']);
-    
-                // Fire event (listener will handle stock)
-                event(new OrderConfirmed($order));
-            });
-    
-            return response()->json([
-                'success' => true,
-                'message' => 'Order confirmed'
-            ], 200);
-    
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
-        }
-    }
+}
     // public function index(Request $request)
     //     {
 
