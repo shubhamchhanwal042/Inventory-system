@@ -2,8 +2,6 @@
 
 @section('content')
 
-
-
 <h3>Create Order</h3>
 
 <input id="customer_name" class="form-control mb-2" placeholder="Customer Name">
@@ -14,83 +12,75 @@
 
 <input id="qty" class="form-control mb-2" placeholder="Quantity">
 
-<button onclick="createOrder()" class="btn btn-primary">Create Order</button>
+<button onclick="createOrder()" class="btn btn-primary mb-4">Create Order</button>
 
 <hr>
 
 <h3>Orders List</h3>
 
+<!-- Filters -->
+<div class="mb-2 d-flex gap-2">
+    <select id="status_filter" class="form-control w-auto">
+        <option value="">All Status</option>
+        <option value="pending">Pending</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="cancelled">Cancelled</option>
+    </select>
+
+    <input type="date" id="from_date" class="form-control w-auto" placeholder="From">
+    <input type="date" id="to_date" class="form-control w-auto" placeholder="To">
+    <button class="btn btn-secondary" onclick="applyFilters()">Filter</button>
+</div>
+
 <table class="table table-bordered">
-
-<thead>
-<tr>
-<th>Order Id</th>
-<th>Customer</th>
-<th>WareHouse</th>
-<th>Status</th>
-<th>Total</th>
-<th>Action</th>
-</tr>
-</thead>
-
-<tbody id="orderTable"></tbody>
-
+    <thead>
+        <tr>
+            <th>Order Id</th>
+            <th>Customer</th>
+            <th>WareHouse</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Items</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody id="orderTable"></tbody>
 </table>
 
+<!-- Pagination -->
+<div id="pagination" class="mt-2"></div>
+
 <script>
-
 const token = localStorage.getItem('token');
-
 
 // LOAD PRODUCTS
 async function loadProducts(){
-
-let res = await fetch('/api/products',{
-headers:{
-'Authorization':'Bearer '+token
+    let res = await fetch('/api/products',{
+        headers:{'Authorization':'Bearer '+token}
+    });
+    let products = await res.json();
+    let html='<option value="">Select Product</option>';
+    products?.forEach(p=>{
+        html += `<option value="${p.id}">${p.name}</option>`;
+    });
+    document.getElementById('product_id').innerHTML = html;
 }
-});
-
-let products = await res.json();
-
-let html='<option value="">Select Product</option>';
-products?.forEach(p=>{
-    // console.log(p);
-
-html += `<option value="${p.id}">${p.name}</option>`;
-});
-
-document.getElementById('product_id').innerHTML = html;
-
-}
-
 
 // LOAD WAREHOUSES
 async function loadWarehouses(){
-
-let res = await fetch('/api/warehouses',{
-headers:{
-'Authorization':'Bearer '+token
+    let res = await fetch('/api/warehouses',{
+        headers:{'Authorization':'Bearer '+token}
+    });
+    let warehouses = await res.json();
+    let html='<option value="">Select Warehouse</option>';
+    warehouses.data?.forEach(w=>{
+        html += `<option value="${w.id}">${w.name}</option>`;
+    });
+    document.getElementById('warehouse_id').innerHTML = html;
 }
-});
-
-let warehouses = await res.json();
-
-let html='<option value="">Select Warehouse</option>';
-
-warehouses.data?.forEach(w=>{
-html += `<option value="${w.id}">${w.name}</option>`;
-});
-
-document.getElementById('warehouse_id').innerHTML = html;
-
-}
-
 
 // CREATE ORDER
 async function createOrder() {
-    const token = localStorage.getItem('token');
-
     const response = await fetch('/api/orders', {
         method: 'POST',
         headers: {
@@ -112,106 +102,94 @@ async function createOrder() {
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-        alert(data.message); // Now shows "Insufficient stock for product: Laptop"
+        alert(data.message);
         return;
     }
 
     alert('Order created successfully!');
+    loadOrders();
+}
+
+// APPLY FILTERS
+function applyFilters(){
+    const status = document.getElementById('status_filter').value;
+    const from = document.getElementById('from_date').value;
+    const to = document.getElementById('to_date').value;
+    loadOrders(status, from, to, 1);
 }
 
 // LOAD ORDERS
-async function loadOrders(){
+async function loadOrders(status='', start_date='', end_date='', page=1) {
+    let url = `/api/orders?status=${status}&start_date=${start_date}&end_date=${end_date}&page=${page}`;
+    let res = await fetch(url,{
+        headers:{'Authorization':'Bearer '+token}
+    });
 
-let res = await fetch('/api/orders',{
-headers:{
-'Authorization':'Bearer '+token
+    let orders = await res.json();
+    let list = orders.data ?? orders;
+    let html='';
+
+    list.forEach(order=>{
+        console.log(order)
+        let itemsList = order.items.map(i => `${i.product_name} x ${i.qty}`).join(', ');
+        html += `
+        <tr>
+            <td>${order.order_no}</td>
+            <td>${order.customer}</td>
+            <td>${order.warehouse}</td>
+            <td>${order.status}</td>
+            <td>${order.total}</td>
+            <td>${itemsList}</td>
+            <td>
+                <button onclick="confirmOrder(${order.id})" class="btn btn-success btn-sm">Confirm</button>
+                <button onclick="cancelOrder(${order.id})" class="btn btn-danger btn-sm">Cancel</button>
+            </td>
+        </tr>
+        `;
+    });
+
+    document.getElementById('orderTable').innerHTML = html;
+
+    // Pagination
+    let paginationHtml = '';
+    for(let i=1; i<=orders.last_page; i++){
+        paginationHtml += `<button onclick="loadOrders('${status}','${start_date}','${end_date}',${i})" class="btn btn-sm btn-light m-1">${i}</button>`;
+    }
+    document.getElementById('pagination').innerHTML = paginationHtml;
 }
-});
-
-let orders = await res.json();
-
-let list = orders.data ?? orders;
-
-let html='';
-
-list.forEach(order=>{
-
-html+=`
-<tr>
-<td>${order.order_no}</td>
-<td>${order.customer}</td>
-<td>${order.warehouse}</td>
-<td>${order.status}</td>
-<td>${order.total}</td>
-
-<td>
-
-<button onclick="confirmOrder(${order.id})" class="btn btn-success btn-sm">
-Confirm
-</button>
-
-<button onclick="cancelOrder(${order.id})" class="btn btn-danger btn-sm">
-Cancel
-</button>
-
-</td>
-
-</tr>
-`;
-
-});
-
-document.getElementById('orderTable').innerHTML=html;
-
-}
-
 
 // CONFIRM ORDER
-// Confirm order with alert
 async function confirmOrder(id) {
-    const token = localStorage.getItem('token');
-
     let res = await fetch('/api/orders/' + id + '/confirm', {
         method: 'POST',
         headers: {'Authorization': 'Bearer ' + token}
     });
-
     let data = await res.json();
-
     if (!res.ok || !data.success) {
         alert(data.message || "Error confirming order");
         return;
     }
-
-    alert(data.message); // Order confirmed
+    alert(data.message);
     loadOrders();
 }
 
-// Cancel order with alert
+// CANCEL ORDER
 async function cancelOrder(id) {
-    const token = localStorage.getItem('token');
-
-    if (!confirm("Are you sure you want to cancel this order?")) {
-        return; // User canceled
-    }
-
+    if (!confirm("Are you sure you want to cancel this order?")) return;
     let res = await fetch('/api/orders/' + id + '/cancel', {
         method: 'POST',
         headers: {'Authorization': 'Bearer ' + token}
     });
-
     let data = await res.json();
-
     if (!res.ok || !data.success) {
         alert(data.message || "Error cancelling order");
         return;
     }
-
-    alert(data.message); // Order cancelled
+    alert(data.message);
     loadOrders();
 }
 
-
+// INITIAL LOAD
 loadProducts();
 loadWarehouses();
 loadOrders();

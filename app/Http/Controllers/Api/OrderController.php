@@ -5,12 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
-use App\Models\Order;
-use App\Events\OrderConfirmed;
+use App\Models\Order; // ✅ Correctuse App\Events\OrderConfirmed;
 use App\Models\Stock;
 use App\Http\Resources\OrderResource;
 use Illuminate\Support\Facades\DB;
-
+use App\Events\OrderConfirmed; // ✅ Correct
 
 class OrderController extends Controller
 {
@@ -57,19 +56,7 @@ class OrderController extends Controller
         ], 400);
     }
 }
-    public function handle($event)
-    {
-        $order = $event->order;
 
-        foreach ($order->items as $item) {
-
-            $stock = Stock::where('product_id',$item->product_id)
-                ->where('warehouse_id',$order->warehouse_id)
-                ->first();
-
-            $stock->decrement('quantity',$item->qty);
-        }
-    }
 
     public function cancel($id)
     {
@@ -106,29 +93,17 @@ class OrderController extends Controller
     public function confirm($id)
     {
         try {
-            DB::transaction(function () use ($id) {
-    
+            DB::transaction(function() use ($id) {
                 $order = Order::with('items')->findOrFail($id);
     
                 if ($order->order_status != 'pending') {
                     throw new \Exception('Only pending orders can be confirmed');
                 }
     
-                foreach ($order->items as $item) {
-                    $stock = Stock::where('product_id',$item->product_id)
-                        ->where('warehouse_id',$order->warehouse_id)
-                        ->lockForUpdate()
-                        ->first();
-    
-                    if (!$stock || $stock->quantity < $item->qty) {
-                        throw new \Exception('Insufficient stock');
-                    }
-    
-                    $stock->quantity -= $item->qty;
-                    $stock->save();
-                }
-    
                 $order->update(['order_status' => 'confirmed']);
+    
+                // Fire event (listener will handle stock)
+                event(new OrderConfirmed($order));
             });
     
             return response()->json([
@@ -143,27 +118,65 @@ class OrderController extends Controller
             ], 400);
         }
     }
+    // public function index(Request $request)
+    //     {
+
+    //         $query = Order::with(['items','warehouse']);
+
+    //         if($request->status){
+    //             $query->where('order_status',$request->status);
+    //         }
+
+    //         if($request->start_date && $request->end_date){
+    //             $query->whereBetween('created_at',[
+    //                 $request->start_date,
+    //                 $request->end_date
+    //             ]);
+    //         }
+
+    //         $orders = $query->paginate(10);
+
+    //         return OrderResource::collection($orders);
+    //     }
 
     public function index(Request $request)
-        {
+{
+    $query = \App\Models\Order::with(['items', 'warehouse']);
 
-            $query = Order::with(['items','warehouse']);
+    // Filter by status
+    if ($request->has('status') && $request->status != '') {
+        $query->where('order_status', $request->status);
+    }
 
-            if($request->status){
-                $query->where('order_status',$request->status);
-            }
+    // Filter by date range
+    if ($request->has('start_date') && $request->has('end_date') 
+        && $request->start_date && $request->end_date) {
+        $query->whereBetween('created_at', [$request->start_date, $request->end_date]);
+    }
 
-            if($request->start_date && $request->end_date){
-                $query->whereBetween('created_at',[
-                    $request->start_date,
-                    $request->end_date
-                ]);
-            }
+    // Pagination (optional: default 10 per page)
+    $orders = $query->orderBy('created_at', 'desc')->paginate(5);
 
-            $orders = $query->paginate(10);
+    // Transform orders for frontend
+    $orders->getCollection()->transform(function($order){
+        return [
+            'id' => $order->id,
+            'order_no' => $order->id,
+            'customer' => $order->customer_name,
+            'warehouse' => $order->warehouse->name ?? '',
+            'status' => ucfirst($order->order_status),
+            'total' => $order->total_amount,
+            'items' => $order->items->map(function($item){
+                return [
+                    'product_name' => $item->product->name ?? 'Unknown',
+                    'qty' => $item->qty
+                ];
+            })
+        ];
+    });
 
-            return OrderResource::collection($orders);
-        }
+    return response()->json($orders);
+}
 
         public function show($id)
             {
